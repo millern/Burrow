@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -58,14 +59,22 @@ func (hc *Coordinator) handlePrometheusMetrics() http.HandlerFunc {
 	promHandler := promhttp.Handler()
 
 	return http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
+		fmt.Printf("=======CALL PROMETHEUS=======\n")
 		for _, cluster := range listClusters(hc.App) {
 			for _, consumer := range listConsumers(hc.App, cluster) {
+				fmt.Printf("[START] consumer group %v", consumer)
 				consumerStatus := getFullConsumerStatus(hc.App, cluster, consumer)
 
 				if consumerStatus == nil ||
-					consumerStatus.Status == protocol.StatusNotFound ||
-					consumerStatus.Complete < 1.0 {
+					consumerStatus.Status == protocol.StatusNotFound {
+					if consumerStatus != nil {
+						fmt.Printf("[debug] skipping consumer group - %v (status %v, totalLag %v, complete %v)\n", consumer, consumerStatus.Status, consumerStatus.TotalLag, consumerStatus.Complete)
+					}
 					continue
+				}
+
+				if consumerStatus.Complete < 1.0 {
+					fmt.Printf("[debug] incomplete consumer group - %v (status %v, totalLag %v, complete %v)\n", consumer, consumerStatus.Status, consumerStatus.TotalLag, consumerStatus.Complete)
 				}
 
 				labels := map[string]string{
@@ -78,6 +87,7 @@ func (hc *Coordinator) handlePrometheusMetrics() http.HandlerFunc {
 
 				for _, partition := range consumerStatus.Partitions {
 					if partition.Complete < 1.0 {
+						fmt.Printf("[debug] skipping partition - [%v:%v:%v] (status %v, complete %v)\n", consumer, partition.Topic, partition, consumerStatus.Status, consumerStatus.Complete)
 						continue
 					}
 
@@ -106,6 +116,7 @@ func (hc *Coordinator) handlePrometheusMetrics() http.HandlerFunc {
 		}
 
 		promHandler.ServeHTTP(resp, req)
+		fmt.Printf("=======END CALL PROMETHEUS=======\n")
 	})
 }
 
